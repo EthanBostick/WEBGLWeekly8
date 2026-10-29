@@ -29,3 +29,24 @@ Texture tiling (THREE.RepeatWrapping) significantly improved realism, particular
 
 6. If you had more time, what additional textures would you add?
 If I had more time, I would add a displacement map (with higher-segment geometry) to physically push out the silhouette of the stone walls and ground, an alpha/opacity map to create tattered edges on the hanging fabric banners, and an equirectangular HDRI skybox texture for realistic outdoor background reflections.
+
+sources:
+Aerial Rocks 02 (Cobblestone Ground)
+Poly Haven
+[https://polyhaven.com/a/aerial_rocks_02](https://polyhaven.com/a/aerial_rocks_02)
+
+Castle Brick 02 Red (Castle Wall)
+Poly Haven
+[https://polyhaven.com/a/castle_brick_02_red](https://polyhaven.com/a/castle_brick_02_red)
+
+Wood Planks (Wooden Gate & Crates)
+Poly Haven
+[https://polyhaven.com/a/wood_planks](https://polyhaven.com/a/wood_planks)
+
+Fabric Pattern 07 (Decorative Banner)
+Poly Haven
+[https://polyhaven.com/a/fabric_pattern_07](https://polyhaven.com/a/fabric_pattern_07)
+
+Corrugated Iron (Metal Barrel)
+Poly Haven
+[https://polyhaven.com/a/corrugated_iron](https://polyhaven.com/a/corrugated_iron)
