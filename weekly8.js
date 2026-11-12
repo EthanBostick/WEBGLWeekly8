@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -12,7 +12,7 @@ const camera = new THREE.PerspectiveCamera(
     1000
 );
 
-camera.position.set(18, 12, 22);
+camera.position.set(0, 8, 18);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -24,10 +24,141 @@ const controls = new OrbitControls(
     camera,
     renderer.domElement
 );
-
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
+// ----------------------------------------------------
+// Animation Clock & Mixer Setup
+// ----------------------------------------------------
+const clock = new THREE.Clock();
+let mixer = null;
+let idleAction = null;
+let runAction = null;
+let currentAction = null;
+
+// ----------------------------------------------------
+// Obstacles & Collision Setup
+// ----------------------------------------------------
+const obstacles = [];
+const playerBox = new THREE.Box3();
+const obstacleBox = new THREE.Box3();
+
+// ----------------------------------------------------
+// Player Setup & Controls
+// ----------------------------------------------------
+const playerSpeed = 0.15;
+const keys = {};
+
+window.addEventListener('keydown', (e) => {
+    keys[e.key] = true;
+});
+
+window.addEventListener('keyup', (e) => {
+    keys[e.key] = false;
+});
+
+// ----------------------------------------------------
+// 3D Models
+// ----------------------------------------------------
+const modelLoader = new GLTFLoader();
+
+// Catapult
+modelLoader.load('models/catapult.glb', function(gltf) {
+    const catapult = gltf.scene;
+    catapult.position.set(0, 0, 0);
+    catapult.scale.set(100, 100, 100);
+
+    catapult.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+        }
+    });
+
+    scene.add(catapult);
+    obstacles.push(catapult);
+});
+
+// Right Barracks
+modelLoader.load('models/barracks.glb', function(gltf) {
+    const barracksRight = gltf.scene;
+    barracksRight.position.set(18, 0, -10);
+    barracksRight.scale.set(7, 7, 7);
+
+    barracksRight.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+        }
+    });
+
+    scene.add(barracksRight);
+    obstacles.push(barracksRight);
+});
+
+// Left Barracks
+modelLoader.load('models/barracks.glb', function(gltf) {
+    const barracksLeft = gltf.scene;
+    barracksLeft.position.set(-18, 0, -10);
+    barracksLeft.scale.set(7, 7, 7);
+
+    barracksLeft.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+        }
+    });
+
+    scene.add(barracksLeft);
+    obstacles.push(barracksLeft);
+});
+
+// Player Character (King)
+let player = new THREE.Group();
+player.position.set(0, 0, 6);
+scene.add(player);
+
+modelLoader.load('models/king.glb', function(gltf) {
+    const model = gltf.scene;
+    model.scale.set(2, 2, 2);
+
+    model.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+        }
+    });
+
+    // 1. Calculate the model's internal center offset
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+
+    // 2. Re-center the model so its pivot is right between its feet
+    model.position.x = -center.x;
+    model.position.z = -center.z;
+    // Keep feet on the ground (align lowest Y to 0)
+    model.position.y = -box.min.y;
+
+    player.add(model);
+
+    // Setup animations
+    if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+
+        const idleClip = gltf.animations.find(c => /idle/i.test(c.name)) || gltf.animations[0];
+        const runClip  = gltf.animations.find(c => /run|walk/i.test(c.name)) || gltf.animations[1] || gltf.animations[0];
+
+        idleAction = mixer.clipAction(idleClip);
+        runAction  = mixer.clipAction(runClip);
+
+        idleAction.play();
+        currentAction = idleAction;
+    }
+});
+
+// ----------------------------------------------------
+// Textures & Materials
+// ----------------------------------------------------
 const loader = new THREE.TextureLoader();
 
 function loadTiledTexture(url, repeatX, repeatY) {
@@ -37,7 +168,6 @@ function loadTiledTexture(url, repeatX, repeatY) {
     tex.repeat.set(repeatX, repeatY);
     return tex;
 }
-
 
 const stoneColor = loadTiledTexture('https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_rocks_02/aerial_rocks_02_diff_1k.jpg', 10, 10);
 const stoneNormal = loadTiledTexture('https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_rocks_02/aerial_rocks_02_nor_gl_1k.jpg', 10, 10);
@@ -101,6 +231,9 @@ const lanternMaterial = new THREE.MeshStandardMaterial({
     emissiveIntensity: 2.5
 });
 
+// ----------------------------------------------------
+// Environment Meshes (Obstacles)
+// ----------------------------------------------------
 const groundGeometry = new THREE.PlaneGeometry(100, 100);
 groundGeometry.setAttribute('uv2', new THREE.BufferAttribute(groundGeometry.attributes.uv.array, 2));
 
@@ -117,12 +250,14 @@ leftWall.position.set(-11, 5, -10);
 leftWall.castShadow = true;
 leftWall.receiveShadow = true;
 scene.add(leftWall);
+obstacles.push(leftWall);
 
 const rightWall = new THREE.Mesh(wallGeo, wallMaterial);
 rightWall.position.set(11, 5, -10);
 rightWall.castShadow = true;
 rightWall.receiveShadow = true;
 scene.add(rightWall);
+obstacles.push(rightWall);
 
 const towerGeo = new THREE.CylinderGeometry(3.5, 3.5, 14, 16);
 const leftTower = new THREE.Mesh(towerGeo, wallMaterial);
@@ -130,12 +265,14 @@ leftTower.position.set(-19, 7, -10);
 leftTower.castShadow = true;
 leftTower.receiveShadow = true;
 scene.add(leftTower);
+obstacles.push(leftTower);
 
 const rightTower = new THREE.Mesh(towerGeo, wallMaterial);
 rightTower.position.set(19, 7, -10);
 rightTower.castShadow = true;
 rightTower.receiveShadow = true;
 scene.add(rightTower);
+obstacles.push(rightTower);
 
 const gateGeo = new THREE.BoxGeometry(8, 8, 1);
 const gate = new THREE.Mesh(gateGeo, woodMaterial);
@@ -143,6 +280,7 @@ gate.position.set(0, 4, -10);
 gate.castShadow = true;
 gate.receiveShadow = true;
 scene.add(gate);
+obstacles.push(gate);
 
 const crateGeo = new THREE.BoxGeometry(2.5, 2.5, 2.5);
 const crate1 = new THREE.Mesh(crateGeo, woodMaterial);
@@ -150,6 +288,7 @@ crate1.position.set(-6, 1.25, -4);
 crate1.castShadow = true;
 crate1.receiveShadow = true;
 scene.add(crate1);
+obstacles.push(crate1);
 
 const crate2 = new THREE.Mesh(crateGeo, woodMaterial);
 crate2.position.set(-4.5, 1.25, -1);
@@ -157,6 +296,7 @@ crate2.rotation.y = 0.4;
 crate2.castShadow = true;
 crate2.receiveShadow = true;
 scene.add(crate2);
+obstacles.push(crate2);
 
 const barrelGeo = new THREE.CylinderGeometry(1.2, 1.2, 3, 16);
 const barrel = new THREE.Mesh(barrelGeo, metalMaterial);
@@ -164,6 +304,7 @@ barrel.position.set(6, 1.5, -5);
 barrel.castShadow = true;
 barrel.receiveShadow = true;
 scene.add(barrel);
+obstacles.push(barrel);
 
 const bannerGeo = new THREE.PlaneGeometry(2.5, 6);
 const leftBanner = new THREE.Mesh(bannerGeo, bannerMaterial);
@@ -185,6 +326,9 @@ const rightLantern = new THREE.Mesh(lanternGeo, lanternMaterial);
 rightLantern.position.set(4.5, 7, -8.8);
 scene.add(rightLantern);
 
+// ----------------------------------------------------
+// Lights
+// ----------------------------------------------------
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambientLight);
 
@@ -220,7 +364,6 @@ function setScreenshotMode(mode) {
     } else {
         allMaterials.forEach(m => m.wireframe = false);
 
-        // Apply Color Maps (Mode 2+)
         groundMaterial.map = stoneColor;
         wallMaterial.map = wallColor;
         woodMaterial.map = woodColor;
@@ -228,13 +371,11 @@ function setScreenshotMode(mode) {
         metalMaterial.map = metalColor;
         lanternMaterial.map = wallColor;
 
-        // Apply Normal Maps (Mode 3+)
         const useNormal = (mode >= '3');
         groundMaterial.normalMap = useNormal ? stoneNormal : null;
         wallMaterial.normalMap = useNormal ? wallNormal : null;
         woodMaterial.normalMap = useNormal ? woodNormal : null;
 
-        // Apply Roughness Maps (Mode 4+)
         const useRough = (mode >= '4');
         groundMaterial.roughnessMap = useRough ? stoneRough : null;
         wallMaterial.roughnessMap = useRough ? wallRough : null;
@@ -242,7 +383,6 @@ function setScreenshotMode(mode) {
         bannerMaterial.roughnessMap = useRough ? bannerRough : null;
         metalMaterial.roughnessMap = useRough ? metalRough : null;
 
-        // Apply Bonus Maps: AO, Metalness, Emissive (Mode 5)
         const useBonus = (mode === '5');
         groundMaterial.aoMap = useBonus ? stoneAO : null;
         wallMaterial.aoMap = useBonus ? wallAO : null;
@@ -266,8 +406,84 @@ window.addEventListener("resize", () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// ----------------------------------------------------
+// Animation Loop
+// ----------------------------------------------------
 function animate() {
     requestAnimationFrame(animate);
+
+    const delta = clock.getDelta();
+    if (mixer) {
+        mixer.update(delta);
+    }
+
+    if (player) {
+        const prevX = player.position.x;
+        const prevZ = player.position.z;
+
+        let moveX = 0;
+        let moveZ = 0;
+
+        // Arrow controls direction vectors
+        if (keys["ArrowUp"]) moveZ -= 1;
+        if (keys["ArrowDown"]) moveZ += 1;
+        if (keys["ArrowLeft"]) moveX -= 1;
+        if (keys["ArrowRight"]) moveX += 1;
+
+        const isMoving = (moveX !== 0 || moveZ !== 0);
+
+        if (isMoving) {
+            // Normalize diagonal movement speed
+            const length = Math.hypot(moveX, moveZ);
+            player.position.x += (moveX / length) * playerSpeed;
+            player.position.z += (moveZ / length) * playerSpeed;
+
+            // Face movement direction
+            player.rotation.y = Math.atan2(moveX, moveZ);
+
+            // Crossfade to Run
+            if (currentAction !== runAction && runAction) {
+                currentAction.fadeOut(0.2);
+                runAction.reset().fadeIn(0.2).play();
+                currentAction = runAction;
+            }
+        } else {
+            // Crossfade back to Idle
+            if (currentAction !== idleAction && idleAction) {
+                currentAction.fadeOut(0.2);
+                idleAction.reset().fadeIn(0.2).play();
+                currentAction = idleAction;
+            }
+        }
+
+        // Clamp inside ground area
+        player.position.x = Math.max(-45, Math.min(45, player.position.x));
+        player.position.z = Math.max(-45, Math.min(45, player.position.z));
+
+        // Update player bounding box
+        playerBox.setFromObject(player);
+        playerBox.expandByScalar(-0.4); // Shrinks all sides by 0.4 units
+
+        for (let obstacle of obstacles) {
+            obstacleBox.setFromObject(obstacle);
+            obstacleBox.expandByScalar(-0.2);
+
+            if (playerBox.intersectsBox(obstacleBox)) {
+                console.log("Collision!");
+                player.position.x = prevX;
+                player.position.z = prevZ;
+                break;
+            }
+
+        }
+
+        // Camera chases player from behind
+        camera.position.x = player.position.x;
+        camera.position.y = player.position.y + 6;
+        camera.position.z = player.position.z + 10;
+        controls.target.set(player.position.x, player.position.y + 2, player.position.z);
+    }
+
     controls.update();
     renderer.render(scene, camera);
 }
