@@ -1,3 +1,24 @@
+# Weekly challenge 9
+
+## Screenshots:
+full scene + player character
+<img width="999" height="514" alt="Screenshot 2026-11-12 at 10 34 22 AM" src="https://github.com/user-attachments/assets/c200f5a5-2a56-4e58-bfe3-f721aadb0f05" />
+
+collision showcase, animation, plus player moving
+<img width="818" height="484" alt="Screenshot 2026-11-12 at 10 34 43 AM" src="https://github.com/user-attachments/assets/ee10cbe6-8317-4f00-8ec7-2bf6335eedfc" />
+
+1. Which model was easiest to integrate and why?
+   - by far the easiest models to add were the large barrack building to the gate wall. They simply needed scaling and proper placement, they did not require any animations or special collision boxes
+2. What challenges did you encounter when importing models?
+   - some of the models just did not show up after loading, even with adjusting the scaling values.
+3. How did collision detection improve the realism of your scene?
+   - it made it so the player character could not phase through boxes and the wall. The objects actually seemed physical
+4. If you had another hour, what feature would you add next?
+   - I would probably make it so the gate could open and the player could exit.
+5. What is the difference between a decorative model and an interactive model?
+   - decorative models have no player interaction; the player cannot interact with them, they serve to elevate the scene.
+
+
 # WEBGLWeekly8
 ## Screenshots:
 wireframe
