@@ -1,3 +1,28 @@
+# Weekly challenge 10 stuff (9 & 8 below)
+
+## Screenshots
+standing next to interaction object
+<img width="789" height="506" alt="interactable object" src="https://github.com/user-attachments/assets/30b8a2c1-b57b-4d63-9912-28722438d796" />
+
+raycast + interaction + ui + sound effect
+<img width="640" height="249" alt="Screenshot 2026-11-12 at 8 08 53 PM" src="https://github.com/user-attachments/assets/52f0b601-4db7-46bc-9d47-112f9399967e" />
+
+Press e to cast fireball at the gate. 
+
+ 1. What object did you make interactive using raycasting?
+    - I am using raycasting to make the gate interactive 
+ 2. How does raycasting differ from collision detection?
+    - raycasting creates an invisible line that does not actually interact with anything just reports back what it has hit. Collision detection is between two physical objects
+ 3. Why must a ray have both an origin and a direction?
+    - the ray is essentially just a vector, if it doesn't have an origin then the ray cannot be cast
+ 4. What sound effect did you choose and why?
+    - I used two sound effects. One is an explosion because the gate is exploding. The second is a wizard/old voice saying fireball, as the king raises his hand. This gives explanation to how the gate is exploding with no visible projectile.
+ 5. How did adding sound and interaction improve your scene?
+    - It made my scene vastly superior with a new air of whimsy and coolness
+ 6. What additional interactive object would you add if you had another hour?
+    - I would have made everything on the map explodable via the spell cast.
+
+
 # Weekly challenge 9
 
 ## Screenshots:
