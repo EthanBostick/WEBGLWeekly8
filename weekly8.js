@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
+const defaultSkyColor = new THREE.Color(0x87ceeb);
+scene.background = defaultSkyColor.clone();
 
 const camera = new THREE.PerspectiveCamera(
     75,
@@ -27,6 +28,214 @@ const controls = new OrbitControls(
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
+const raycaster = new THREE.Raycaster();
+
+// ----------------------------------------------------
+// Placeholder Audio Setup
+// ----------------------------------------------------
+const listener = new THREE.AudioListener();
+camera.add(listener);
+
+const fireballSound = new THREE.Audio(listener);
+const explosionSound = new THREE.Audio(listener);
+const audioLoader = new THREE.AudioLoader();
+
+audioLoader.load(
+    "audio/fireball.mp3",
+    function(buffer) {
+        fireballSound.setBuffer(buffer);
+        fireballSound.setVolume(0.5);
+    }
+);
+
+audioLoader.load(
+    "audio/explode.mp3",
+    function(buffer) {
+        explosionSound.setBuffer(buffer);
+        explosionSound.setVolume(0.5);
+    }
+);
+
+// ----------------------------------------------------
+// Placeholder UI Message Setup
+// ----------------------------------------------------
+const uiMessage = document.createElement("div");
+uiMessage.style.position = "fixed";
+uiMessage.style.top = "25%";
+uiMessage.style.left = "50%";
+uiMessage.style.transform = "translate(-50%, -50%)";
+uiMessage.style.fontFamily = "'Impact', 'Arial Black', sans-serif";
+uiMessage.style.fontSize = "56px";
+uiMessage.style.fontWeight = "bold";
+uiMessage.style.letterSpacing = "3px";
+uiMessage.style.color = "#ffcc00";
+uiMessage.style.textShadow = "4px 4px 0px #000000, -2px -2px 0px #ff3300";
+uiMessage.style.display = "none";
+uiMessage.style.pointerEvents = "none";
+uiMessage.style.zIndex = "10";
+document.body.appendChild(uiMessage);
+
+function setMessage(text) {
+    uiMessage.textContent = text;
+    uiMessage.style.display = "block";
+
+    // Hide message automatically after 4 seconds
+    setTimeout(() => {
+        uiMessage.style.display = "none";
+    }, 4000);
+}
+
+// ----------------------------------------------------
+// Anime Explosion, Impact Frames & Slow-Mo State
+// ----------------------------------------------------
+let gateDestroyed = false;
+let timeScale = 1.0;
+let hitStopTimer = 0;
+let slowMoTimer = 0;
+let shakeIntensity = 0;
+const explosionCubes = [];
+const shockwaves = [];
+
+// Shoot windup delay state (waits for hand to raise before firing raycast)
+let shootDelayTimer = -1;
+const SHOOT_FIRE_DELAY = 0.45; // Seconds into the animation before the blast triggers
+
+// Impact frame materials for stark full-scene silhouettes
+const impactBlackMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+const impactWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+function setSceneImpactLook(invertFrame) {
+    // Flip background and all object materials between pure Black & White
+    scene.background.setHex(invertFrame ? 0x000000 : 0xffffff);
+
+    scene.traverse((obj) => {
+        if (obj.isMesh) {
+            if (!obj.userData.originalMaterial) {
+                obj.userData.originalMaterial = obj.material;
+            }
+            obj.material = invertFrame ? impactWhiteMat : impactBlackMat;
+        }
+    });
+
+    // Apply ultra-high-contrast B&W anime post-filter across the whole canvas
+    renderer.domElement.style.filter = invertFrame
+        ? "grayscale(100%) contrast(2000%) invert(100%)"
+        : "grayscale(100%) contrast(2000%)";
+}
+
+function restoreSceneLook() {
+    scene.background.copy(defaultSkyColor);
+    renderer.domElement.style.filter = "none";
+
+    scene.traverse((obj) => {
+        if (obj.isMesh && obj.userData.originalMaterial) {
+            obj.material = obj.userData.originalMaterial;
+        }
+    });
+}
+
+function triggerGateExplosion(hitPoint) {
+    gateDestroyed = true;
+
+    // 1. Play Sound
+    if (explosionSound.buffer) {
+        if (explosionSound.isPlaying) explosionSound.stop();
+        explosionSound.play();
+    }
+
+    // 2. Trigger Full-Screen Anime Impact Frames (0.16s hit-stop freeze)
+    hitStopTimer = 0.16;
+    shakeIntensity = 1.8;
+
+    // Remove gate from collision obstacles immediately
+    const obsIndex = obstacles.indexOf(gate);
+    if (obsIndex > -1) {
+        obstacles.splice(obsIndex, 1);
+    }
+}
+
+function spawnAnimeDebris() {
+    // Hide the original gate mesh
+    gate.visible = false;
+
+    // Trigger UI Message
+    setMessage("GATE OBLITERATED BY THE KING!");
+
+    // Enter dramatic slow-motion right as the cubes burst out
+    timeScale = 0.12;
+    slowMoTimer = 1.4; // Hold slow-mo for 1.4 real seconds
+    shakeIntensity = 2.2;
+
+    const origin = gate.position.clone();
+
+    // Create Expanding Anime Shockwave Ring
+    const ringGeo = new THREE.TorusGeometry(1, 0.35, 12, 32);
+    const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1.0
+    });
+    const shockwave = new THREE.Mesh(ringGeo, ringMat);
+    shockwave.position.copy(origin);
+    scene.add(shockwave);
+    shockwaves.push(shockwave);
+
+    // Yutapon Anime Cube Palette (Wood, Glowing Orange/Yellow Embers, Dark Charcoal, White Core)
+    const debrisMaterials = [
+        woodMaterial,
+        new THREE.MeshBasicMaterial({ color: 0xff5500 }), // Anime Fire Orange
+        new THREE.MeshBasicMaterial({ color: 0xffdd00 }), // Anime Flash Yellow
+        new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }), // Charcoal
+        new THREE.MeshBasicMaterial({ color: 0xffffff })  // Pure White Impact Cube
+    ];
+
+    const cubeCount = 95;
+    for (let i = 0; i < cubeCount; i++) {
+        const size = 0.35 + Math.random() * 1.3;
+        const geo = new THREE.BoxGeometry(size, size, size);
+        const mat = debrisMaterials[Math.floor(Math.random() * debrisMaterials.length)];
+        const cube = new THREE.Mesh(geo, mat);
+
+        // Spawn inside the gate's 8x8x1 volume
+        cube.position.set(
+            origin.x + (Math.random() - 0.5) * 7.5,
+            origin.y + (Math.random() - 0.5) * 7.5,
+            origin.z + (Math.random() - 0.5) * 1.5
+        );
+
+        cube.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+        );
+
+        cube.castShadow = true;
+        cube.receiveShadow = true;
+
+        // Explosive radial velocity outward from center
+        const dir = cube.position.clone().sub(origin).normalize();
+        const speed = 14 + Math.random() * 28;
+
+        cube.userData = {
+            velocity: new THREE.Vector3(
+                dir.x * speed + (Math.random() - 0.5) * 12,
+                Math.abs(dir.y) * speed * 0.85 + 8 + Math.random() * 12,
+                dir.z * speed + (Math.random() - 0.5) * 24
+            ),
+            rotSpeed: new THREE.Vector3(
+                (Math.random() - 0.5) * 18,
+                (Math.random() - 0.5) * 18,
+                (Math.random() - 0.5) * 18
+            ),
+            size: size,
+            life: 3.5 + Math.random() * 2.0
+        };
+
+        scene.add(cube);
+        explosionCubes.push(cube);
+    }
+}
+
 // ----------------------------------------------------
 // Animation Clock & Mixer Setup
 // ----------------------------------------------------
@@ -34,6 +243,7 @@ const clock = new THREE.Clock();
 let mixer = null;
 let idleAction = null;
 let runAction = null;
+let shootAction = null;
 let currentAction = null;
 
 // ----------------------------------------------------
@@ -48,6 +258,50 @@ const obstacleBox = new THREE.Box3();
 // ----------------------------------------------------
 const playerSpeed = 0.15;
 const keys = {};
+
+function fireRaycastAtGate() {
+    if (gateDestroyed) return;
+
+    // Direction the player is currently facing
+    const direction = new THREE.Vector3(0, 0, 1)
+        .applyQuaternion(player.quaternion)
+        .normalize();
+
+    // Start raycast at chest/hand height (y + 2)
+    const rayOrigin = player.position.clone().add(new THREE.Vector3(0, 2, 0));
+    raycaster.set(rayOrigin, direction);
+
+    const hits = raycaster.intersectObject(gate, true);
+
+    if (hits.length > 0) {
+        triggerGateExplosion(hits[0].point);
+    }
+}
+
+function checkInteraction() {
+    // Prevent re-triggering while already in the middle of shooting
+    if (currentAction === shootAction) return;
+
+    if (fireballSound.buffer) {
+        if (fireballSound.isPlaying) fireballSound.stop();
+        fireballSound.play();
+    }
+
+    if (currentAction && shootAction) {
+        currentAction.fadeOut(0.15);
+        shootAction.reset().fadeIn(0.15).play();
+        currentAction = shootAction;
+    }
+
+    // Start countdown so the blast waits until the player raises their hand all the way
+    shootDelayTimer = SHOOT_FIRE_DELAY;
+}
+
+window.addEventListener("keydown", (event) => {
+    if (event.key.toLowerCase() === "e" && !event.repeat) {
+        checkInteraction();
+    }
+});
 
 window.addEventListener('keydown', (e) => {
     keys[e.key] = true;
@@ -146,10 +400,25 @@ modelLoader.load('models/king.glb', function(gltf) {
         mixer = new THREE.AnimationMixer(model);
 
         const idleClip = gltf.animations.find(c => /idle/i.test(c.name)) || gltf.animations[0];
+        const shootClip = gltf.animations.find(c => /gun_shoot/i.test(c.name)) || gltf.animations[0];
         const runClip  = gltf.animations.find(c => /run|walk/i.test(c.name)) || gltf.animations[1] || gltf.animations[0];
 
         idleAction = mixer.clipAction(idleClip);
         runAction  = mixer.clipAction(runClip);
+        shootAction = mixer.clipAction(shootClip);
+
+        // Configure shootAction to play only ONCE and hold its final frame until crossfaded
+        shootAction.setLoop(THREE.LoopOnce, 1);
+        shootAction.clampWhenFinished = true;
+
+        // Automatically transition back to idle when shootAction finishes playing once
+        mixer.addEventListener('finished', (e) => {
+            if (e.action === shootAction && idleAction) {
+                shootAction.fadeOut(0.2);
+                idleAction.reset().fadeIn(0.2).play();
+                currentAction = idleAction;
+            }
+        });
 
         idleAction.play();
         currentAction = idleAction;
@@ -412,11 +681,104 @@ window.addEventListener("resize", () => {
 function animate() {
     requestAnimationFrame(animate);
 
-    const delta = clock.getDelta();
-    if (mixer) {
-        mixer.update(delta);
+    const rawDelta = Math.min(clock.getDelta(), 0.1);
+
+    // 1. Handle Full-Scene Anime Hit-Stop & B&W Impact Frames
+    if (hitStopTimer > 0) {
+        hitStopTimer -= rawDelta;
+
+        // Flicker the ENTIRE scene & player between inverted black & white silhouettes
+        const invertFrame = Math.floor(hitStopTimer * 55) % 2 === 0;
+        setSceneImpactLook(invertFrame);
+        gate.scale.setScalar(1.08 + Math.random() * 0.12);
+
+        // Apply camera shake during hit-stop
+        camera.position.x = player.position.x + (Math.random() - 0.5) * shakeIntensity;
+        camera.position.y = player.position.y + 6 + (Math.random() - 0.5) * shakeIntensity;
+        renderer.render(scene, camera);
+
+        // When Hit-Stop finishes, restore scene materials and spawn the explosion!
+        if (hitStopTimer <= 0) {
+            restoreSceneLook();
+            spawnAnimeDebris();
+        }
+        return; // Freeze world movement during impact frames
     }
 
+    // 2. Handle Slow-Motion Time Dilation Ramp
+    if (slowMoTimer > 0) {
+        slowMoTimer -= rawDelta;
+        if (slowMoTimer <= 0) {
+            // Smoothly ramp back up to 1.0 normal speed
+            timeScale += (1.0 - timeScale) * 0.1;
+            if (timeScale > 0.98) timeScale = 1.0;
+        }
+    } else if (timeScale < 1.0) {
+        timeScale += (1.0 - timeScale) * 0.08;
+        if (timeScale > 0.99) timeScale = 1.0;
+    }
+
+    const scaledDelta = rawDelta * timeScale;
+
+    if (mixer) {
+        mixer.update(scaledDelta);
+    }
+
+    // 3. Handle Shoot Windup Delay (Fires raycast when hand is raised)
+    if (shootDelayTimer > 0) {
+        shootDelayTimer -= scaledDelta;
+        if (shootDelayTimer <= 0) {
+            shootDelayTimer = -1;
+            fireRaycastAtGate();
+        }
+    }
+
+    // 4. Update Anime Explosion Cubes
+    for (let i = explosionCubes.length - 1; i >= 0; i--) {
+        const c = explosionCubes[i];
+        const data = c.userData;
+
+        // Move and apply gravity
+        c.position.addScaledVector(data.velocity, scaledDelta);
+        data.velocity.y -= 38 * scaledDelta; // Gravity
+
+        // Bounce off the ground plane
+        const halfSize = (data.size * c.scale.x) / 2;
+        if (c.position.y < halfSize) {
+            c.position.y = halfSize;
+            data.velocity.y *= -0.55; // Bounce restitution
+            data.velocity.x *= 0.8;   // Ground friction
+            data.velocity.z *= 0.8;
+        }
+
+        // Spin debris cubes
+        c.rotation.x += data.rotSpeed.x * scaledDelta;
+        c.rotation.y += data.rotSpeed.y * scaledDelta;
+        c.rotation.z += data.rotSpeed.z * scaledDelta;
+
+        // Shrink and remove at end of life
+        data.life -= scaledDelta;
+        if (data.life < 1.0) {
+            c.scale.setScalar(Math.max(0.001, data.life));
+        }
+        if (data.life <= 0) {
+            scene.remove(c);
+            explosionCubes.splice(i, 1);
+        }
+    }
+
+    // 5. Update Expanding Shockwaves
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const sw = shockwaves[i];
+        sw.scale.addScalar(45 * scaledDelta);
+        sw.material.opacity -= 1.8 * scaledDelta;
+        if (sw.material.opacity <= 0) {
+            scene.remove(sw);
+            shockwaves.splice(i, 1);
+        }
+    }
+
+    // 6. Player Movement & Collision
     if (player) {
         const prevX = player.position.x;
         const prevZ = player.position.z;
@@ -430,13 +792,22 @@ function animate() {
         if (keys["ArrowLeft"]) moveX -= 1;
         if (keys["ArrowRight"]) moveX += 1;
 
+        // WASD
+        if (keys["w"]) moveZ -= 1;
+        if (keys["s"]) moveZ += 1;
+        if (keys["a"]) moveX -= 1;
+        if (keys["d"]) moveX += 1;
+
         const isMoving = (moveX !== 0 || moveZ !== 0);
 
         if (isMoving) {
-            // Normalize diagonal movement speed
+            // Cancel pending shot if player starts running mid-windup
+            shootDelayTimer = -1;
+
+            // Normalize diagonal movement speed (affected by slow-mo timeScale)
             const length = Math.hypot(moveX, moveZ);
-            player.position.x += (moveX / length) * playerSpeed;
-            player.position.z += (moveZ / length) * playerSpeed;
+            player.position.x += (moveX / length) * playerSpeed * timeScale;
+            player.position.z += (moveZ / length) * playerSpeed * timeScale;
 
             // Face movement direction
             player.rotation.y = Math.atan2(moveX, moveZ);
@@ -448,8 +819,8 @@ function animate() {
                 currentAction = runAction;
             }
         } else {
-            // Crossfade back to Idle
-            if (currentAction !== idleAction && idleAction) {
+            // Crossfade back to Idle (unless shootAction is currently playing)
+            if (currentAction !== shootAction && currentAction !== idleAction && idleAction) {
                 currentAction.fadeOut(0.2);
                 idleAction.reset().fadeIn(0.2).play();
                 currentAction = idleAction;
@@ -474,14 +845,22 @@ function animate() {
                 player.position.z = prevZ;
                 break;
             }
-
         }
 
-        // Camera chases player from behind
-        camera.position.x = player.position.x;
-        camera.position.y = player.position.y + 6;
+        // Decay camera shake
+        if (shakeIntensity > 0) {
+            shakeIntensity *= 0.88;
+            if (shakeIntensity < 0.01) shakeIntensity = 0;
+        }
+
+        const shakeX = (Math.random() - 0.5) * shakeIntensity;
+        const shakeY = (Math.random() - 0.5) * shakeIntensity;
+
+        // Camera chases player from behind + screen shake offset
+        camera.position.x = player.position.x + shakeX;
+        camera.position.y = player.position.y + 6 + shakeY;
         camera.position.z = player.position.z + 10;
-        controls.target.set(player.position.x, player.position.y + 2, player.position.z);
+        controls.target.set(player.position.x + shakeX, player.position.y + 2 + shakeY, player.position.z);
     }
 
     controls.update();
